@@ -156,7 +156,7 @@ class SportDBCreator(BaseSportDBCreator):
 
 				kit = []
 				shirt = []
-				afc = []
+				other = []
 				
 				for i, row in enumerate(sib.find_all('tr')):
 					
@@ -185,11 +185,11 @@ class SportDBCreator(BaseSportDBCreator):
 								kit.extend([self.processors['sponsor'](td.text.lower())]*rpl)
 							elif len(shirt) < i:
 								shirt.extend([self.processors['sponsor'](td.text.lower())]*rpl)
-							elif len(afc) < i:
-								afc.extend([self.processors['sponsor'](td.text.lower())]*rpl)
+							elif len(other) < i:
+								other.extend([self.processors['sponsor'](td.text.lower())]*rpl)
 	
 				# verify that all sponsor types are the same length
-				if not len(kit) == len(shirt) == len(afc):
+				if not len(kit) == len(shirt) == len(other):
 					print("some problem with sponsors!")
 
 				break
@@ -197,13 +197,113 @@ class SportDBCreator(BaseSportDBCreator):
 
 		this_team_sponsors['previous'] = {'kit': process_sponsors(kit), 
 											'shirt': process_sponsors(shirt), 
-												'afc': process_sponsors(afc)}
+												'other': process_sponsors(other)}
 		this_team_sponsors['current'] = {'kit': process_sponsors(kit, sponsor_now=True), 
 											'shirt': process_sponsors(shirt, sponsor_now=True), 
-												'afc': process_sponsors(afc, sponsor_now=True)}
+												'other': process_sponsors(other, sponsor_now=True)}
 
 		return this_team_sponsors
 
+	def _scrape_socials(self):
+
+		updated_team_data = []
+
+		for team in self.team_data:
+
+			try:
+				team_url = team['website']
+			except:
+				raise Exception(f'no website info available for team {self.team_data["full name"]}')
+
+			print('team website:', team_url)
+
+			soup = BeautifulSoup(requests.get(team_url).text, 'html.parser')
+
+			team_socials = defaultdict()
+
+			socials = 'facebook instagram youtube twitter'.split()
+
+			for a in soup.find('div', class_='social-links').find_all('a'):
+				print(a)
+				for soc in socials:
+					if soc in a['href']:
+						team_socials[soc] = a['href']
+
+			# update team information
+			team.update({'social media': team_socials})
+
+			updated_team_data.append(team)
+
+		self.team_data = updated_team_data
+
+		return self
+
+	def _scrape_squad(self, team_soup):
+
+		print('scraping team squad...')
+
+		fst_team_span = team_soup.find('span', id='First_team_squad')
+	
+		team_countries = []
+	
+		if not fst_team_span:
+			return team_countries
+		
+		for s in fst_team_span.parent.next_siblings:
+		
+			if s.name == 'table':
+		
+				# find the very first td
+				tr = s.find('tr')
+	
+				for flag in tr.find_all('span', class_="flagicon"):
+					team_countries.append(flag.find('a')["title"].lower())
+		
+				return Counter(team_countries)
+
+		return team_countries
+
+	def _scrape_team_colors(self, team_soup):
+
+		def find_nearest_color(hex_color):
+
+			# make hex rgb
+			rgb_triplet = webcolors.hex_to_rgb(hex_color)
+	
+			min_colours = defaultdict() # {score: color name,..}
+
+			for key, name in webcolors.CSS3_HEX_TO_NAMES.items():
+
+				r_c, g_c, b_c = webcolors.hex_to_rgb(key)
+
+				rd = (r_c - rgb_triplet[0]) ** 2
+				gd = (g_c - rgb_triplet[1]) ** 2
+				bd = (b_c - rgb_triplet[2]) ** 2
+
+				min_colours[rd + gd + bd] = name
+
+			return(min_colours[min(min_colours.keys())])
+
+		team_colors = set()
+
+		# background colors first (kit)
+		imgs = team_soup.find('td', attrs={'class': 'toccolours'})
+		
+		if imgs:
+			for ss in imgs.find_all('div', style=re.compile('background-color')):
+
+				colcode = ss["style"].split('background-color:')[-1].replace(';','').strip()
+
+				if len(colcode) == 7:
+
+					try:
+						c = webcolors.hex_to_name(webcolors.normalize_hex(colcode))
+					except:
+						c = find_nearest_color(colcode)
+	
+					team_colors.add(c)
+	
+		return team_colors
 
 
 if __name__ == '__main__':
@@ -231,126 +331,17 @@ if __name__ == '__main__':
 
 		print("team=", team)
 	
-		print(sc._scrape_team_sponsors(soup))
+		# print(sc._scrape_team_sponsors(soup))
+
+		# print(sc._scrape_squad(soup))
+
+		print(sc._scrape_team_colors(soup))
+
+	print('updating social media..')
+	sc._scrape_socials()
+	print(sc.team_data)
 
 
-	
-	# 	# search by css class
-	# 	ib = soup.find("table", class_="infobox")
-	
-	# 	# go by rows
-	# 	for row in ib.find_all("tr"):
-	
-	# 		th = row.find('th')
-	# 		if th:
-				
-	# 			k = th.text.encode('ascii','replace').decode().replace('?',' ').lower()
-	
-	# 			if not set(k) & set(string.digits):
-	# 				# any urls
-	# 				if k != 'website':
-	# 					team_info[k] = row.find('td').text.lower()
-	# 				else:
-	# 					team_info[k] = row.find('a')["href"]
-	# 					# try to get sicial media details from the landing oage of the web site
-	# 					offpage = requests.get(team_info[k])
-	
-	# 					offsoup = BeautifulSoup(offpage.text, 'html.parser')
-	
-	# 					#print(offpage.text)
-	
-	# 					socials = defaultdict()
-	
-	# 					try:
-	
-	# 						print('looking for facebook...')
-	# 						fa = offsoup.find('div', class_='social-links')
-							
-	# 						for a1 in fa.find_all('a'):
-	# 							print(a1['href'])
-	# 					except:
-	# 						pass
-	
-	# 					try:
-	# 						socials['twitter'] = offsoup.find('a', class_='twitter')['href']
-	# 					except:
-	# 						pass
-	
-	# 					print(socials)
-	
-	
-	# 				if k in processors['team']:
-	# 					team_info[k] = processors['team'][k](team_info[k])
-	# 		else:
-	# 			pass
-	
-	# 	all_tmz.append(team_info)
-	
-	# 	# search for the first teams squad
-	# 	fst_team_span = soup.find('span', id='First_team_squad')
-	# 	print('fst_team_span=', fst_team_span)
-	
-	# 	team_countries = []
-	
-	# 	if fst_team_span:
-	
-	# 		fst_team_h3 = fst_team_span.parent
-	
-	# 		for s in fst_team_h3.next_siblings:
-		
-	# 			if s.name == 'table':
-		
-	# 				# find the very first td
-	# 				tr = s.find('tr')
-	
-	# 				for flag in tr.find_all('span', class_="flagicon"):
-	# 					team_countries.append(flag.find('a')["title"].lower())
-		
-	# 				print(Counter(team_countries))
-	
-	# 				altc += Counter(team_countries)
-	
-	# 				break	
-		
-	# 	# look for spornsors
-	
-	# 	print('looking for SPONSORS..')
-		
-	# 	sp_span = soup.find('span', text=re.compile("Sponsorship"), attrs = {'id': 'Sponsorship'})
-	
-	# 	if not sp_span:
-	# 		sp_span = soup.find('span', text=re.compile("Sponsors"), attrs = {'id': 'Sponsors'})
-	
-	# 	if not sp_span:
-	# 		sp_span = soup.find('span', text="Colours and badge", attrs={'class': 'mw-headline'}) 
-	
-	# 	colors_h2 = sp_span.parent
-	# 	#print(colors_h2)
-	
-	# 	for sib in colors_h2.next_siblings:
-	
-	# 		if sib.name == 'h2':
-	# 			print("NO SPONSOR INFO!!!")
-	# 			break
-	
-	# 		if sib.name == 'table':
-	
-	# 			print("FOUND TABLE!")
-	
-	# 			kit = []
-	# 			shirt = []
-	# 			afc = []
-				
-	# 			for i, r5 in enumerate(sib.find_all('tr')):
-					
-	# 				if i == 0:
-	# 					continue
-	
-	# 				print([_.text for _ in r5.find_all('td')])
-	
-	
-	# 			break
-	
 	# 	# get IMAGE
 	# 	print('BACKGROUND COLORS:')
 	
