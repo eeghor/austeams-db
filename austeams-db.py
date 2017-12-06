@@ -10,6 +10,7 @@ import re
 import cv2
 import numpy as np
 import os
+from itertools import chain
 
 from abc import ABCMeta, abstractmethod
 
@@ -39,7 +40,8 @@ class SportDBCreator(BaseSportDBCreator):
 								"founded": lambda _: str(arrow.get(_.split(";")[0], "YYYY").year),
 								"ground": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],   	# if multiple, they come in separate lines
 								"ground capacity": lambda _: ''.join([c for c in _ if c.isdigit() or c.isspace()]).split()
-	}}
+	}, 
+	'sponsor': lambda _: _.split('[')[0].split('(')[0].strip()}
 		return self
 
 
@@ -69,12 +71,12 @@ class SportDBCreator(BaseSportDBCreator):
 
 		print('ok')
 
-	def _scrape_team_infobox(self):
+	def _scrape_team_infobox(self, team_soup):
 
 		this_team_info = defaultdict()
 
 		try:
-			ib = soup.find("table", class_="infobox")
+			ib = team_soup.find("table", class_="infobox")
 		except:
 			raise Exception('can\'t find team infobox on this page!')
 
@@ -103,6 +105,106 @@ class SportDBCreator(BaseSportDBCreator):
 
 		return this_team_info
 
+	def _scrape_team_sponsors(self, team_soup):
+
+		
+		def process_sponsors(sponsor_list, sponsor_now=False):
+
+			assert isinstance(sponsor_now, bool), 'incorrestly chosen option - only True or False allowed!'
+
+			if not sponsor_list:
+				return None
+
+			if not sponsor_now:
+				sponsors = {s.lower() for s in sponsor_list[:-1] if s != sponsor_list[-1]}
+				if not sponsors:
+					return None
+			else:
+				sponsors = [sponsor_list[-1]]
+
+			# sponsors may be separates by new line or / or ,
+			sponsors = {z.strip() for s in sponsors 
+						for v in s.split('\n') 
+							for r in v.split('/') 
+								for z in r.split(',') if z.strip() and z.strip().isalnum()}	
+
+			return list(sponsors) if sponsors else None	
+
+
+		this_team_sponsors = defaultdict()
+		
+		# sponsors are not always sitting in the same section so need to try a few scenarios
+		sp_span = team_soup.find('span', text=re.compile("Sponsorship"), attrs = {'id': 'Sponsorship'})
+	
+		if not sp_span:
+			sp_span = soup.find('span', text=re.compile("Sponsors"), attrs = {'id': 'Sponsors'})
+	
+		if not sp_span:
+			sp_span = soup.find('span', text="Colours and badge", attrs={'class': 'mw-headline'}) 
+		
+		# maybe there's no sponsor info, then just return an empty dict
+		if not sp_span:
+			return this_team_sponsors
+
+		for sib in sp_span.parent.next_siblings:
+	
+			if sib.name == 'h2':
+				# apparently, no sponsor info, return empty dict
+				return this_team_sponsors
+	
+			if sib.name == 'table':
+
+				kit = []
+				shirt = []
+				afc = []
+				
+				for i, row in enumerate(sib.find_all('tr')):
+					
+					if i == 0:    # skip header
+						continue
+
+					if (i == 1) and row.find('th'):
+						continue
+
+					any_tds = row.find_all('td')
+
+					if any_tds:
+
+						for j, td in enumerate(any_tds):
+
+							if j == 0:
+								continue
+
+							try:
+								rpl = int(td['rowspan'])
+							except:
+								rpl = 1
+							
+							# try to add to sponsor types, left to right
+							if len(kit) < i:
+								kit.extend([self.processors['sponsor'](td.text.lower())]*rpl)
+							elif len(shirt) < i:
+								shirt.extend([self.processors['sponsor'](td.text.lower())]*rpl)
+							elif len(afc) < i:
+								afc.extend([self.processors['sponsor'](td.text.lower())]*rpl)
+	
+				# verify that all sponsor types are the same length
+				if not len(kit) == len(shirt) == len(afc):
+					print("some problem with sponsors!")
+
+				break
+
+
+		this_team_sponsors['previous'] = {'kit': process_sponsors(kit), 
+											'shirt': process_sponsors(shirt), 
+												'afc': process_sponsors(afc)}
+		this_team_sponsors['current'] = {'kit': process_sponsors(kit, sponsor_now=True), 
+											'shirt': process_sponsors(shirt, sponsor_now=True), 
+												'afc': process_sponsors(afc, sponsor_now=True)}
+
+		return this_team_sponsors
+
+
 
 if __name__ == '__main__':
 
@@ -115,9 +217,23 @@ if __name__ == '__main__':
 	
 		soup = BeautifulSoup(r.text, 'html.parser')
 	
-		sc.team_data.append(sc._scrape_team_infobox())
+		sc.team_data.append(sc._scrape_team_infobox(soup))
 
 	print(sc.team_data)
+
+	print('sponsors...')
+
+	for team in sc.team_urls[sc.sport]:
+
+		r = requests.get(sc.team_urls[sc.sport][team])
+	
+		soup = BeautifulSoup(r.text, 'html.parser')
+
+		print("team=", team)
+	
+		print(sc._scrape_team_sponsors(soup))
+
+
 	
 	# 	# search by css class
 	# 	ib = soup.find("table", class_="infobox")
