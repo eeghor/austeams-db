@@ -1,0 +1,14 @@
+{
+  "soccer": {
+  	"sydney fc": "https://en.wikipedia.org/wiki/Sydney_FC",
+  	"brisbane roar": "https://en.wikipedia.org/wiki/Brisbane_Roar_FC",
+  	"newcastle jets": "https://en.wikipedia.org/wiki/Newcastle_Jets_FC",
+  	"melbourne city": "https://en.wikipedia.org/wiki/Melbourne_City_FC",
+  	"central coast mariners": "https://en.wikipedia.org/wiki/Central_Coast_Mariners_FC",
+  	"adelaide united": "https://en.wikipedia.org/wiki/Adelaide_United_FC",
+  	"melbourne victory": "https://en.wikipedia.org/wiki/Melbourne_Victory_FC",
+  	"perth glory": "https://en.wikipedia.org/wiki/Perth_Glory_FC",
+  	"western sydney wanderers": "https://en.wikipedia.org/wiki/Western_Sydney_Wanderers_FC",
+  	"wellington phoenix": "https://en.wikipedia.org/wiki/Wellington_Phoenix_FC"
+  }
+}
