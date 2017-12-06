@@ -10,6 +10,7 @@ import re
 import cv2
 import numpy as np
 import os
+import shutil
 from itertools import chain
 
 from abc import ABCMeta, abstractmethod
@@ -36,12 +37,17 @@ class SportDBCreator(BaseSportDBCreator):
 
 		self.processors = {'team': 
 							{"full name": lambda _: _.split("[")[0],
-								"nickname(s)":  lambda _: [nick.split("[")[0] for nick in _.split(",")],  # nicknames are comma separated
-								"founded": lambda _: str(arrow.get(_.split(";")[0], "YYYY").year),
-								"ground": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],   	# if multiple, they come in separate lines
-								"ground capacity": lambda _: ''.join([c for c in _ if c.isdigit() or c.isspace()]).split()
-	}, 
-	'sponsor': lambda _: _.split('[')[0].split('(')[0].strip()}
+							"nickname(s)":  lambda _: [nick.split("[")[0] for nick in _.split(",")],  # nicknames are comma separated
+							"founded": lambda _: str(arrow.get(_.split(";")[0], "YYYY").year),
+							"ground": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],   	# if multiple, they come in separate lines
+							"ground capacity": lambda _: ''.join([c for c in _ if c.isdigit() or c.isspace()]).split()}, 
+							'sponsor': lambda _: _.split('[')[0].split('(')[0].strip(),
+							"venue": {"former names": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],
+										"owner": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],
+										"operator": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],
+										"capacity": lambda _: _.split("[")[0],
+										"field size": lambda _: 'x'.join([c for c in _.split() if c.isdigit()]),
+										"opened": lambda _: str(arrow.get(_.split(";")[0], "YYYY").year)}}
 		return self
 
 
@@ -284,26 +290,115 @@ class SportDBCreator(BaseSportDBCreator):
 
 			return(min_colours[min(min_colours.keys())])
 
-		team_colors = set()
+		team_colors = defaultdict(lambda: defaultdict(list))
 
 		# background colors first (kit)
 		imgs = team_soup.find('td', attrs={'class': 'toccolours'})
 		
 		if imgs:
+
+			hexs = []
+
 			for ss in imgs.find_all('div', style=re.compile('background-color')):
 
 				colcode = ss["style"].split('background-color:')[-1].replace(';','').strip()
 
 				if len(colcode) == 7:
+					hexs.append(colcode)
 
-					try:
-						c = webcolors.hex_to_name(webcolors.normalize_hex(colcode))
-					except:
-						c = find_nearest_color(colcode)
+			for t in Counter(hexs).most_common(5):
+
+				try:
+					c = webcolors.hex_to_name(webcolors.normalize_hex(t[0]))
+				except:
+					c = find_nearest_color(t[0])
+
+				team_colors['kit']['hex'].append(t[0])
+				team_colors['kit']['name'].append(c)
+
+			team_colors['kit']['name'] = list(set(team_colors['kit']['name']))
+
+		# team logos
+
+		if not os.path.isdir('data_temp'):
+			os.mkdir('data_temp')
+
+		im_logo = team_soup.find('a', class_='image')
 	
-					team_colors.add(c)
+		with open('data_temp/logofile.png', 'wb') as f:
+			f.write(requests.get('https:' + im_logo.find('img')['src']).content)
 	
+		i1 = cv2.imread('data_temp/logofile.png')
+	
+		rgbs = []
+	
+		for x in range(i1.shape[0]):
+			for y in range(i1.shape[1]):
+
+				bgr = list(i1[x,y,:])
+				rgbs.append(tuple(bgr[::-1]))
+
+		for t in Counter(rgbs).most_common(5):
+
+			try:
+				c = webcolors.rgb_to_name(t[0])
+			except:
+				c = find_nearest_color(webcolors.rgb_to_hex(t[0]))
+
+			team_colors['logo']['hex'].append(webcolors.rgb_to_hex(t[0]))
+			team_colors['logo']['name'].append(c)
+		
+		shutil.rmtree('data_temp')
+
+		team_colors['logo']['name'] = list(set(team_colors['logo']['name']))
+
 		return team_colors
+
+	def _scrape_venues(self, team_soup):
+
+		venue_data = defaultdict()
+
+		th1 = team_soup.find('table', class_='infobox').find('th', text='Ground')
+
+		if not th1:
+			return venue_data
+		
+		venue_url = None
+
+		for s in th1.next_siblings:
+			if s.name == 'td':
+				venue_url = "https://en.wikipedia.org" + s.find('a')['href']
+				break
+		if not venue_url:
+			return venue_data
+	
+		venue_soup = BeautifulSoup(requests.get(venue_url).text, 'html.parser')
+	
+		venue_infobox = venue_soup.find('table', class_='infobox')
+			
+	
+		for row in venue_infobox.find_all('tr'):
+			th = row.find('th')
+			if th:
+				local_td = row.find('td')
+				if th and local_td:
+		
+					# print("th=", th.text)
+					# print("td=", row.find('td').text)
+
+					k = th.text.lower().strip()
+
+					if k != 'coordinates':
+						venue_data[k] = local_td.text.strip().lower()
+					else:
+						venue_data[k] = local_td.find('span', class_='geo-dec').text.strip()
+			
+		# postprocessing
+		for k in venue_data:
+			if k in self.processors['venue']:
+				venue_data[k] = self.processors['venue'][k](venue_data[k])
+		
+		print(venue_data)
 
 
 if __name__ == '__main__':
@@ -335,113 +430,12 @@ if __name__ == '__main__':
 
 		# print(sc._scrape_squad(soup))
 
-		print(sc._scrape_team_colors(soup))
+		team_colors = sc._scrape_team_colors(soup)
 
-	print('updating social media..')
-	sc._scrape_socials()
-	print(sc.team_data)
+		print(team_colors)
 
+		venue_info = sc._scrape_venues(soup)
 
-	# 	# get IMAGE
-	# 	print('BACKGROUND COLORS:')
-	
-	# 	team_cols = set()
-	
-	# 	imgs = soup.find('td', attrs={'class': 'toccolours'})
-		
-	# 	if imgs:
-	# 		for ss in imgs.find_all('div', style=re.compile('background-color')):
-	# 			colcode = ss["style"].split('background-color:')[-1].replace(';','').strip()
-	# 			# print(colcode)
-	# 			if len(colcode) == 7:
-	# 				try:
-	# 					c = webcolors.hex_to_name(webcolors.normalize_hex(colcode))
-	# 					# print("color name: ", c)
-	# 				except:
-	# 					# print('don\'t know color name')
-	
-	# 					rgb_triplet = webcolors.hex_to_rgb(colcode)
-	
-	# 					min_colours = {}
-	
-	# 					for key, name in webcolors.CSS3_HEX_TO_NAMES.items():
-	
-	# 						r_c, g_c, b_c = webcolors.hex_to_rgb(key)
-	# 						rd = (r_c - rgb_triplet[0]) ** 2
-	# 						gd = (g_c - rgb_triplet[1]) ** 2
-	# 						bd = (b_c - rgb_triplet[2]) ** 2
-	# 						min_colours[(rd + gd + bd)] = name
-	
-	# 					c =  min_colours[min(min_colours.keys())]
-	
-	# 				team_cols.add(c)
-	
-	# 	print("team colors: ", team_cols)
-	
-	# 	# LOGO
-	
-	# 	print("LOGO")
-	
-	# 	im_logo = soup.find('a', class_='image')
-	
-	# 	so = im_logo.find('img')['src']
-	
-	# 	downl_im = requests.get('https:' + so)
-	# 	with open('logofile.png', 'wb') as f:
-	# 		f.write(downl_im.content)
-	
-	# 	i1 = cv2.imread('logofile.png')
-	# 	print('got image {}'.format(i1.shape))
-	
-	# 	rgbs = []
-	
-	# 	for x in range(i1.shape[0]):
-	# 		for y in range(i1.shape[1]):
-	# 			bgr = list(i1[x,y,:])
-	# 			rgbs.append(tuple(bgr[::-1]))
-	
-	# 	print(Counter(rgbs).most_common(5))
-	
-	# 	#print({webcolors.rgb_to_name(r[0]): r[1] for r in Counter(rgbs).most_common(5)})
-	
-	
-	# 	# VENUE
-	
-	# 	th1 = soup.find('table', class_='infobox').find('th', text='Ground')
-	
-	# 	for i, s in enumerate(th1.next_siblings, 1):
-	# 		if s.name == 'td':
-	# 			venue_url = "https://en.wikipedia.org" + s.find('a')['href']
-	# 			break
-	
-	# 	venue_resp = requests.get(venue_url)
-	
-	# 	venue_soup = BeautifulSoup(venue_resp.text, 'html.parser')
-	
-	# 	venue_infobox = venue_soup.find('table', class_='infobox')
-	
-	# 	venue_data = dict()
-	
-	# 	for row in venue_infobox.find_all('tr'):
-	# 		th = row.find('th')
-	# 		if th:
-	# 			local_td = row.find('td')
-	# 			if th and local_td:
-	
-	# 				print("th=", th)
-	# 				print("td=", row.find('td'))
-	# 				venue_data.update({th.text.lower(): local_td.text})
-	
-	# 	print(venue_data)
-	
-	
-	
-	# 	break
-	
-	
-	# 	print(altc.most_common())
-		
-	# 	json.dump(all_tmz, open('teamz.json', 'w'))
-	
-	
-	# 
+	# print('updating social media..')
+	# sc._scrape_socials()
+	# print(sc.team_data)
