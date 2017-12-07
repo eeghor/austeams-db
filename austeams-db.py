@@ -40,8 +40,10 @@ class SportDBCreator(BaseSportDBCreator):
 							"nickname(s)":  lambda _: [nick.split("[")[0] for nick in _.split(",")],  # nicknames are comma separated
 							"founded": lambda _: str(arrow.get(_.split(";")[0], "YYYY").year),
 							"ground": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],   	# if multiple, they come in separate lines
-							"ground capacity": lambda _: ''.join([c for c in _ if c.isdigit() or c.isspace()]).split()}, 
-							'sponsor': lambda _: _.split('[')[0].split('(')[0].strip(),
+							"ground capacity": lambda _: ''.join([c for c in _ if c.isdigit() or c.isspace()]).split(),
+							'history': lambda _: [w.strip() for w in _.split('\n') if len([p for p in w if p.isdigit()]) < 4],
+							'arena': lambda _: [w.strip() for w in _.split('\n') if len([p for p in w if p.isdigit()]) < 4]}, 
+							'sponsor': lambda _: _.split('[')[0].split('(')[0].strip(),	
 							"venue": {"former names": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],
 										"owner": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],
 										"operator": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],
@@ -106,7 +108,7 @@ class SportDBCreator(BaseSportDBCreator):
 			if th and td:  # proceed if both non-empty
 				
 				# this th will be our dictionary key
-				k = th.text.encode('ascii','replace').decode().replace('?',' ').lower()
+				k = th.text.encode('ascii','replace').decode().replace('?',' ').lower().strip()
 				
 				# we are interested in those ths where there are not numbers in the name
 				if not (set(k) & set(string.digits)):
@@ -116,7 +118,7 @@ class SportDBCreator(BaseSportDBCreator):
 						this_team_info[k] = td.text.lower()
 					else:
 						this_team_info[k] = row.find('a')["href"]  # grab url not text
-	
+					
 					if k in self.processors['team']:  # postprocess collected info if needed
 						this_team_info[k] = self.processors['team'][k](this_team_info[k])
 
@@ -465,10 +467,10 @@ class SportDBCreator(BaseSportDBCreator):
 if __name__ == '__main__':
 
 	sc = (SportDBCreator()
-			.get_team_info()
-				.get_team_sponsors()
-					.get_int_profile()
-						.get_team_colors()
-							.get_team_social_media())
+			.get_team_info())
+				# .get_team_sponsors()
+				# 	.get_int_profile()
+				# 		.get_team_colors()
+				# 			.get_team_social_media())
 
 	json.dump(sc.team_data, open('tdata.json', 'w'))
