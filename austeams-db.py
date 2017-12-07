@@ -37,12 +37,15 @@ class SportDBCreator(BaseSportDBCreator):
 
 		self.processors = {'team': 
 							{"full name": lambda _: _.split("[")[0],
-							"nickname(s)":  lambda _: [nick.split("[")[0] for nick in _.split(",")],  # nicknames are comma separated
+							"nickname(s)":  lambda _: [nick.split("[")[0].strip() for nick in _.split(",")],  # nicknames are comma separated
 							"founded": lambda _: str(arrow.get(_.split(";")[0], "YYYY").year),
 							"ground": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],   	# if multiple, they come in separate lines
 							"ground capacity": lambda _: ''.join([c for c in _ if c.isdigit() or c.isspace()]).split(),
 							'history': lambda _: [w.strip() for w in _.split('\n') if len([p for p in w if p.isdigit()]) < 4],
-							'arena': lambda _: [w.strip() for w in _.split('\n') if len([p for p in w if p.isdigit()]) < 4]}, 
+							'arena': lambda _: [w.strip() for w in _.split('\n') if len([p for p in w if p.isdigit()]) < 4],
+							'arena capacity': lambda _: [w for w in _.replace(',','').split() if w.isdigit()],
+							'location': lambda _: _.replace("\n", ''),
+							'team colors': lambda _: [w.strip() for w in _.split(',')]}, 
 							'sponsor': lambda _: _.split('[')[0].split('(')[0].strip(),	
 							"venue": {"former names": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],
 										"owner": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],
@@ -115,7 +118,7 @@ class SportDBCreator(BaseSportDBCreator):
 
 					# the website field is a special case
 					if k != 'website':
-						this_team_info[k] = td.text.lower()
+						this_team_info[k] = td.text.lower().strip()
 					else:
 						this_team_info[k] = row.find('a')["href"]  # grab url not text
 					
@@ -228,7 +231,7 @@ class SportDBCreator(BaseSportDBCreator):
 
 		team_socials = defaultdict()
 
-		soup = BeautifulSoup(requests.get(team_website_url).text, 'html.parser')
+		soup = BeautifulSoup(requests.get(team_website_url).text, "lxml")
 
 		for a in soup.find('div', class_='social-links').find_all('a'):
 			for soc in self.socials_of_interest:
@@ -366,8 +369,7 @@ class SportDBCreator(BaseSportDBCreator):
 	
 		venue_soup = BeautifulSoup(requests.get(venue_url).text, 'html.parser')
 	
-		venue_infobox = venue_soup.find('table', class_='infobox')
-			
+		venue_infobox = venue_soup.find('table', class_='infobox')			
 	
 		for row in venue_infobox.find_all('tr'):
 			th = row.find('th')
