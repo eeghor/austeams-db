@@ -45,9 +45,13 @@ class SportDBCreator(BaseSportDBCreator):
 							"venue": {"former names": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],
 										"owner": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],
 										"operator": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],
-										"capacity": lambda _: _.split("[")[0],
+										# "capacity": lambda _: _.split("[")[0],
 										"field size": lambda _: 'x'.join([c for c in _.split() if c.isdigit()]),
-										"opened": lambda _: str(arrow.get(_.split(";")[0], "YYYY").year)}}
+										"opened": lambda _: str(arrow.get(_.split(";")[0], "YYYY").year),
+										"location": lambda _: ','.join([w.strip() for w in _.split('\n')]),
+										"surface": lambda _: _,
+										"expanded": lambda _: _,
+										"renovated": lambda _: _,}}
 		return self
 
 
@@ -72,12 +76,19 @@ class SportDBCreator(BaseSportDBCreator):
 
 		self._setup_processors()
 
-		# containers for collected data
-		self.team_data = []
+		self.socials_of_interest = 'facebook instagram youtube twitter'.split()
+
+		# prepopulate containers for collected data
+		self.team_data = [{"name": team, "sport": self.sport} for team in self.team_urls[self.sport]]
 
 		print('ok')
 
 	def _scrape_team_infobox(self, team_soup):
+
+		"""
+		team_soup is a soup object for the team
+		returns team information from the team's wikipedia infobox as a dictionary
+		"""
 
 		this_team_info = defaultdict()
 
@@ -138,15 +149,16 @@ class SportDBCreator(BaseSportDBCreator):
 
 
 		this_team_sponsors = defaultdict()
+		this_team_sponsors['sponsors'] = defaultdict()
 		
 		# sponsors are not always sitting in the same section so need to try a few scenarios
 		sp_span = team_soup.find('span', text=re.compile("Sponsorship"), attrs = {'id': 'Sponsorship'})
 	
 		if not sp_span:
-			sp_span = soup.find('span', text=re.compile("Sponsors"), attrs = {'id': 'Sponsors'})
+			sp_span = team_soup.find('span', text=re.compile("Sponsors"), attrs = {'id': 'Sponsors'})
 	
 		if not sp_span:
-			sp_span = soup.find('span', text="Colours and badge", attrs={'class': 'mw-headline'}) 
+			sp_span = team_soup.find('span', text="Colours and badge", attrs={'class': 'mw-headline'}) 
 		
 		# maybe there's no sponsor info, then just return an empty dict
 		if not sp_span:
@@ -201,52 +213,30 @@ class SportDBCreator(BaseSportDBCreator):
 				break
 
 
-		this_team_sponsors['previous'] = {'kit': process_sponsors(kit), 
+		this_team_sponsors['sponsors']['previous'] = {'kit': process_sponsors(kit), 
 											'shirt': process_sponsors(shirt), 
 												'other': process_sponsors(other)}
-		this_team_sponsors['current'] = {'kit': process_sponsors(kit, sponsor_now=True), 
+		this_team_sponsors['sponsors']['current'] = {'kit': process_sponsors(kit, sponsor_now=True), 
 											'shirt': process_sponsors(shirt, sponsor_now=True), 
 												'other': process_sponsors(other, sponsor_now=True)}
 
 		return this_team_sponsors
 
-	def _scrape_socials(self):
+	def _scrape_socials(self, team_website_url):
 
-		updated_team_data = []
+		team_socials = defaultdict()
 
-		for team in self.team_data:
+		soup = BeautifulSoup(requests.get(team_website_url).text, 'html.parser')
 
-			try:
-				team_url = team['website']
-			except:
-				raise Exception(f'no website info available for team {self.team_data["full name"]}')
+		for a in soup.find('div', class_='social-links').find_all('a'):
+			for soc in self.socials_of_interest:
+				if soc in a['href']:
+					team_socials[soc] = a['href']
 
-			print('team website:', team_url)
 
-			soup = BeautifulSoup(requests.get(team_url).text, 'html.parser')
-
-			team_socials = defaultdict()
-
-			socials = 'facebook instagram youtube twitter'.split()
-
-			for a in soup.find('div', class_='social-links').find_all('a'):
-				print(a)
-				for soc in socials:
-					if soc in a['href']:
-						team_socials[soc] = a['href']
-
-			# update team information
-			team.update({'social media': team_socials})
-
-			updated_team_data.append(team)
-
-		self.team_data = updated_team_data
-
-		return self
+		return {'social_media_accounts': team_socials}
 
 	def _scrape_squad(self, team_soup):
-
-		print('scraping team squad...')
 
 		fst_team_span = team_soup.find('span', id='First_team_squad')
 	
@@ -265,7 +255,7 @@ class SportDBCreator(BaseSportDBCreator):
 				for flag in tr.find_all('span', class_="flagicon"):
 					team_countries.append(flag.find('a')["title"].lower())
 		
-				return Counter(team_countries)
+				return {"player_citizenships": Counter(team_countries)}
 
 		return team_countries
 
@@ -352,7 +342,7 @@ class SportDBCreator(BaseSportDBCreator):
 
 		team_colors['logo']['name'] = list(set(team_colors['logo']['name']))
 
-		return team_colors
+		return {"team_colors": team_colors}
 
 	def _scrape_venues(self, team_soup):
 
@@ -388,54 +378,97 @@ class SportDBCreator(BaseSportDBCreator):
 
 					k = th.text.lower().strip()
 
-					if k != 'coordinates':
-						venue_data[k] = local_td.text.strip().lower()
-					else:
-						venue_data[k] = local_td.find('span', class_='geo-dec').text.strip()
-			
-		# postprocessing
-		for k in venue_data:
-			if k in self.processors['venue']:
-				venue_data[k] = self.processors['venue'][k](venue_data[k])
-		
-		print(venue_data)
+					if k in self.processors['venue']:
 
+						if k != 'coordinates':
+							venue_data[k] = local_td.text.strip().lower()
+						else:
+							venue_data[k] = local_td.find('span', class_='geo-dec').text.strip()
+			
+						venue_data[k] = self.processors['venue'][k](venue_data[k])
+
+	def get_team_info(self):
+
+		print('collecting basic team info...', end='')
+
+		for team in self.team_urls[self.sport]:
+
+			for rec in self.team_data:
+				if rec['name'] == team:
+					rec.update(self._scrape_team_infobox(BeautifulSoup(requests.get(self.team_urls[self.sport][team]).text, 'html.parser')))
+					break
+		print('ok')
+
+		return self
+
+	def get_team_sponsors(self):
+
+		print('collecting team sponsors...', end='')
+
+		for team in self.team_urls[self.sport]:
+
+			for rec in self.team_data:
+				if rec['name'] == team:
+					rec.update(self._scrape_team_sponsors(BeautifulSoup(requests.get(self.team_urls[self.sport][team]).text, 'html.parser')))
+					break
+
+		print('ok')
+
+		return self
+
+	def get_int_profile(self):
+
+		print('collecting player citizenships...', end='')
+
+		for team in self.team_urls[self.sport]:
+
+			for rec in self.team_data:
+				if rec['name'] == team:
+					rec.update(self._scrape_squad(BeautifulSoup(requests.get(self.team_urls[self.sport][team]).text, 'html.parser')))
+					break
+
+		print('ok')
+
+		return self
+
+	def get_team_colors(self):
+
+		print('collecting team colors...', end='')
+
+		for team in self.team_urls[self.sport]:
+
+			for rec in self.team_data:
+				if rec['name'] == team:
+					rec.update(self._scrape_team_colors(BeautifulSoup(requests.get(self.team_urls[self.sport][team]).text, 'html.parser')))
+					break
+
+		print('ok')
+
+		return self
+
+
+	def get_team_social_media(self):
+
+		print('collecting team social media account info...', end='')
+
+		for team in self.team_urls[self.sport]:
+
+			for rec in self.team_data:
+				if rec['name'] == team and rec['website']:
+					rec.update(self._scrape_socials(rec['website']))
+					break
+
+		print('ok')
+
+		return self
 
 if __name__ == '__main__':
 
-	sc = SportDBCreator()
-	
-	# start visiting urls
-	for team in sc.team_urls[sc.sport]:
+	sc = (SportDBCreator()
+			.get_team_info()
+				.get_team_sponsors()
+					.get_int_profile()
+						.get_team_colors()
+							.get_team_social_media())
 
-		r = requests.get(sc.team_urls[sc.sport][team])
-	
-		soup = BeautifulSoup(r.text, 'html.parser')
-	
-		sc.team_data.append(sc._scrape_team_infobox(soup))
-
-	print(sc.team_data)
-
-	print('sponsors...')
-
-	for team in sc.team_urls[sc.sport]:
-
-		r = requests.get(sc.team_urls[sc.sport][team])
-	
-		soup = BeautifulSoup(r.text, 'html.parser')
-
-		print("team=", team)
-	
-		# print(sc._scrape_team_sponsors(soup))
-
-		# print(sc._scrape_squad(soup))
-
-		team_colors = sc._scrape_team_colors(soup)
-
-		print(team_colors)
-
-		venue_info = sc._scrape_venues(soup)
-
-	# print('updating social media..')
-	# sc._scrape_socials()
-	# print(sc.team_data)
+	json.dump(sc.team_data, open('tdata.json', 'w'))
