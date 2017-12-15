@@ -44,7 +44,7 @@ class SportDBCreator(BaseSportDBCreator):
 							'history': lambda _: [w.strip() for w in _.split('\n') if len([p for p in w if p.isdigit()]) < 4],
 							'arena': lambda _: [w.strip() for w in _.split('\n') if len([p for p in w if p.isdigit()]) < 4],
 							'arena capacity': lambda _: [w for w in _.replace(',','').split() if w.isdigit()],
-							'location': lambda _: _.replace("\n", ''),
+							'location': lambda _: _.replace("\n", ' '),
 							'team colors': lambda _: [w.strip() for w in _.split(',')]}, 
 							'sponsor': lambda _: _.split('[')[0].split('(')[0].strip(),	
 							"venue": {"former names": lambda _: [g.split('(')[0].strip() for g in _.split('\n')],
@@ -57,6 +57,8 @@ class SportDBCreator(BaseSportDBCreator):
 										"surface": lambda _: _,
 										"expanded": lambda _: _,
 										"renovated": lambda _: _,}}
+
+
 		return self
 
 
@@ -84,9 +86,15 @@ class SportDBCreator(BaseSportDBCreator):
 		self.socials_of_interest = 'facebook instagram youtube twitter'.split()
 
 		# prepopulate containers for collected data
-		self.team_data = [{"name": team, "sport": self.sport} for team in self.team_urls[self.sport]]
+		self.team_data = [{"name": team, "sport": self.sport, "wiki_url": self.team_urls[self.sport][team]} for team in self.team_urls[self.sport]]
 
 		print('ok')
+
+		self.GROUND_SYNS = {'ground', 'complex', 'oval', 'hub', 'park', 'showgrounds', 'stadium', 
+								'field', 'reserve', 'estadio', 'club', 'sport', 'arena', 'sports'}
+
+		self.RE_YEAR = re.compile(r'\b\d{4}\b')
+		self.RE_COLOR = re.compile('(?<=\")[a-zA-Z ]+(?=\")')
 
 	def _scrape_team_infobox(self, team_soup):
 
@@ -108,22 +116,69 @@ class SportDBCreator(BaseSportDBCreator):
 			th = row.find('th')
 			td = row.find('td')
 
-			if th and td:  # proceed if both non-empty
+			if th:  
+
+				heading = th.text.lower()
+
+				if 'union' in heading:
+					k = 'union'
+				elif 'nick' in heading:
+					k = 'nickname'
+				elif 'locat' in heading:
+					k = 'location'
+				elif ('ground' in heading) or ('arena' in heading):
+					k = 'ground'
+				elif ('league' in heading) or ('competition' in heading):
+					k = 'league'
+				elif 'website' in heading:
+					k = 'website'
+				elif 'history' in heading:
+					k = 'former names'
+				elif 'colo' in heading:
+					k = 'colours'
+				else:
+					continue
 				
 				# this th will be our dictionary key
-				k = th.text.encode('ascii','replace').decode().replace('?',' ').lower().strip()
-				
-				# we are interested in those ths where there are not numbers in the name
-				if not (set(k) & set(string.digits)):
+				# k = th.text.encode('ascii','replace').decode().replace('?',' ').lower().strip()
 
-					# the website field is a special case
-					if k != 'website':
-						this_team_info[k] = td.text.lower().strip()
-					else:
+				if td:  # 2-column scenario
+
+					if k in ['union', 'location']:
+						this_team_info[k] = td.text.replace("\n",' ').lower().strip()
+					elif k == 'league':
+						this_team_info[k] = [lg.lower().strip() for lg in td.text.split("\n")]
+					elif k == 'nickname':
+						this_team_info[k] = [lg.lower().split('[')[0].strip() for lg in td.text.split(",") if lg.lower().split('[')[0].strip()]
+					elif k == 'colours':
+						this_team_info[k] = [l.lower().strip() for l in re.split(r'[\n;,]\s*', td.text) if (':' not in l) and l.strip()]
+					elif k == 'founded':
+						if self.RE_YEAR.search(td.text):  # avoid empty search results
+							this_team_info[k] = min(self.RE_YEAR.findall(td.text), key=lambda _: int(_))
+						else:
+							this_team_info[k] = None
+					elif k == 'website':
 						this_team_info[k] = row.find('a')["href"]  # grab url not text
+					elif k == 'former names':
+						this_team_info[k] = [_.text.strip().lower() for _ in td.find_all('b')]
+					elif k == 'ground':
+						_ = []
+						for g in td.find_all('a', attrs={'title': True}):
+							if ((set(g.text.replace(',',' ').lower().split()) & self.GROUND_SYNS) or 
+									(set(g['title'].replace(',',' ').replace('_',' ').lower().split()) & self.GROUND_SYNS)):
+								_.append({'name': g.text.lower().strip(), 'wiki_url': 'https://en.wikipedia.org' + g['href']})
+
+						this_team_info[k] = _
+
+						# this_team_info[k] = [{'name': g.text.lower().strip(), 
+						# 						'wiki_url': 'https://en.wikipedia.org' + g['href']} 
+						# 							for g in td.find_all('a', attrs={'title': True}) 
+						# 								if (set(g.text.replace(',',' ').lower().split()) & self.GROUND_SYNS) or 
+						# 								(set(g['title'].replace(',',' ').replace('_',' ').lower().split()) & self.GROUND_SYNS)]
 					
-					if k in self.processors['team']:  # postprocess collected info if needed
-						this_team_info[k] = self.processors['team'][k](this_team_info[k])
+				elif th.has_attr('colspan') and (k == 'website'):
+					this_team_info[k] = row.next_sibling.next_sibling.find('a')['href']
+					continue
 
 		return this_team_info
 
@@ -475,4 +530,4 @@ if __name__ == '__main__':
 				# 		.get_team_colors()
 				# 			.get_team_social_media())
 
-	json.dump(sc.team_data, open('tdata.json', 'w'))
+	json.dump(sc.team_data, open('teaminfo-' + sc.sport.replace(' ','').upper() + '.json', 'w'))

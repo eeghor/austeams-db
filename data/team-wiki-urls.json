@@ -9,7 +9,34 @@
 	"melbourne victory": 		"https://en.wikipedia.org/wiki/Melbourne_Victory_FC",
 	"perth glory": 				"https://en.wikipedia.org/wiki/Perth_Glory_FC",
 	"western sydney wanderers": "https://en.wikipedia.org/wiki/Western_Sydney_Wanderers_FC",
-	"wellington phoenix": 		"https://en.wikipedia.org/wiki/Wellington_Phoenix_FC"
+	"wellington phoenix": 		"https://en.wikipedia.org/wiki/Wellington_Phoenix_FC",
+  "north queensland fury": "https://en.wikipedia.org/wiki/Northern_Fury_FC",
+  "sydney united 58": "https://en.wikipedia.org/wiki/Sydney_United_58_FC",
+  "blacktown city": "https://en.wikipedia.org/wiki/Blacktown_City_FC",
+  "manly united": "https://en.wikipedia.org/wiki/Manly_United_FC",
+  "rockdale city suns": "https://en.wikipedia.org/wiki/Rockdale_City_Suns_FC",
+  "bonnyrigg white eagles": "https://en.wikipedia.org/wiki/Bonnyrigg_White_Eagles_FC",
+  "sydney olympic": "https://en.wikipedia.org/wiki/Sydney_Olympic_FC",
+  "sutherland sharks": "https://en.wikipedia.org/wiki/Sutherland_Sharks_FC",
+  "apia leichhardt tigers": "https://en.wikipedia.org/wiki/APIA_Leichhardt_Tigers_FC",
+  "hakoah sydney city east": "https://en.wikipedia.org/wiki/Hakoah_Sydney_City_East_FC",
+  "parramatta": "https://en.wikipedia.org/wiki/Parramatta_FC",
+  "wollongong wolves": "https://en.wikipedia.org/wiki/Wollongong_Wolves_FC",
+  "blacktown spartans": "https://en.wikipedia.org/wiki/Blacktown_Spartans_FC",
+  "brisbane city":              "https://en.wikipedia.org/wiki/Brisbane_City_FC",
+  "brisbane roar fc reserves":  "https://en.wikipedia.org/wiki/Brisbane_Roar_FC_Reserves",
+  "brisbane strikers":       "https://en.wikipedia.org/wiki/Brisbane_Strikers_FC",
+  "far north queensland":    "https://en.wikipedia.org/wiki/Far_North_Queensland_FC",
+  "moreton bay united":      "https://en.wikipedia.org/wiki/Moreton_Bay_United_FC",
+  "olympic fc":                 "https://en.wikipedia.org/wiki/Olympic_FC",
+  "gold coast city":         "https://en.wikipedia.org/wiki/Gold_Coast_City_FC",
+  "redlands united":         "https://en.wikipedia.org/wiki/Redlands_United_FC",
+  "south west queensland thunder": "https://en.wikipedia.org/wiki/South_West_Queensland_Thunder_FC",
+  "sunshine coast fc":      "https://en.wikipedia.org/wiki/Sunshine_Coast_FC",
+  "western pride":       "https://en.wikipedia.org/wiki/Western_Pride_FC",
+  "central queensland fc": "https://en.wikipedia.org/wiki/Central_Queensland_FC",
+  "qas ntc": "https://en.wikipedia.org/wiki/QAS_NTC",
+  "harimau muda a": "https://en.wikipedia.org/wiki/Harimau_Muda_A"
   },
   "afl": {
 	"adelaide crows": 		"https://en.wikipedia.org/wiki/Adelaide_Football_Club",
@@ -39,7 +66,15 @@
 	"melbourne united": 	"https://en.wikipedia.org/wiki/Melbourne_United",
 	"new zealand breakers": "https://en.wikipedia.org/wiki/New_Zealand_Breakers",
 	"perth wildcats": 		"https://en.wikipedia.org/wiki/Perth_Wildcats",
-	"sydney kings": 		"https://en.wikipedia.org/wiki/Sydney_Kings"
+	"sydney kings": 		"https://en.wikipedia.org/wiki/Sydney_Kings",
+  "adelaide lightning": "https://en.wikipedia.org/wiki/Adelaide_Lightning",
+  "bendigo spirit": "https://en.wikipedia.org/wiki/Bendigo_Spirit",
+  "dandenong rangers": "https://en.wikipedia.org/wiki/Dandenong_Rangers",
+  "melbourne boomers": "https://en.wikipedia.org/wiki/Melbourne_Boomers",
+  "perth lynx": "https://en.wikipedia.org/wiki/Perth_Lynx",
+  "sydney uni flames": "https://en.wikipedia.org/wiki/Sydney_Uni_Flames",
+  "townsville fire": "https://en.wikipedia.org/wiki/Townsville_Fire",
+  "university of canberra capitals": "https://en.wikipedia.org/wiki/University_of_Canberra_Capitals"
   },
   "nrl": {
   	"melbourne storm": 					"https://en.wikipedia.org/wiki/Melbourne_Storm",
@@ -85,5 +120,13 @@
   	"perth spirit": 					"https://en.wikipedia.org/wiki/Perth_Spirit",
   	"queensland country": 				"https://en.wikipedia.org/wiki/Queensland_Country_(NRC_team)",
   	"sydney rays": 						"https://en.wikipedia.org/wiki/Sydney_Rays"
+  },
+  "cricket": {
+    "new south wales blues": "https://en.wikipedia.org/wiki/New_South_Wales_cricket_team",
+    "queensland bulls": "https://en.wikipedia.org/wiki/Queensland_cricket_team",
+    "south australian redbacks": "https://en.wikipedia.org/wiki/South_Australia_cricket_team",
+    "tasmanian tigers": "https://en.wikipedia.org/wiki/Tasmania_cricket_team",
+    "victorian bushrangers": "https://en.wikipedia.org/wiki/Victoria_cricket_team",
+    "western warriors": "https://en.wikipedia.org/wiki/Western_Australia_cricket_team"
   }
 }
