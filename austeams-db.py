@@ -87,6 +87,7 @@ class SportDBCreator(BaseSportDBCreator):
 
 		# prepopulate containers for collected data
 		self.team_data = [{"name": team, "sport": self.sport, "wiki_url": self.team_urls[self.sport][team]} for team in self.team_urls[self.sport]]
+		self.venue_data = []
 
 		print('ok')
 
@@ -95,7 +96,7 @@ class SportDBCreator(BaseSportDBCreator):
 		self.LEAGUE_NMS = {'npl': 'national premier leagues', 'afl': 'australian football league',
 								'nbl': 'national basketball league'}
 
-		self.RE_YEAR = re.compile(r'\b\d{4}\b')
+		self.RE_YEAR = re.compile(r'\d{4}')
 		self.RE_COLOR = re.compile('(?<=\")[a-zA-Z ]+(?=\")')
 
 	def _scrape_team_infobox(self, team_soup):
@@ -167,9 +168,10 @@ class SportDBCreator(BaseSportDBCreator):
 
 					elif k == 'nickname':
 						this_team_info[k] = [nick for nick in list({lg.lower().split('[')[0].split('(')[0].strip() 
-								for lg in re.split(r'[\n;,]\s*', td.text)}) if len(nick) > 1]
+												for lg in re.split(r'[\n;,]\s*', td.text)}) if len(nick) > 1]
 					elif k == 'colours':
-						this_team_info[k] = list(set([l.lower().strip() for l in re.split(r'[\n;,  ]\s*', td.text) if (':' not in l) and l.strip() not in {'and', '&', ''}]))
+						this_team_info[k] = list(set([l.lower().strip() for l in re.split(r'[\n;,  ]\s*', td.text) if 
+													(':' not in l) and l.strip() not in {'and', '&', ''}]))
 					elif k == 'founded':
 						if self.RE_YEAR.search(td.text):  # avoid empty search results
 							this_team_info[k] = min(self.RE_YEAR.findall(td.text), key=lambda _: int(_))
@@ -201,12 +203,6 @@ class SportDBCreator(BaseSportDBCreator):
 							[this_team_info[k].append(v) for v in _ if v["name"] not in venue_names_already_there]
 						else:
 							this_team_info[k] = _
-
-						# this_team_info[k] = [{'name': g.text.lower().strip(), 
-						# 						'wiki_url': 'https://en.wikipedia.org' + g['href']} 
-						# 							for g in td.find_all('a', attrs={'title': True}) 
-						# 								if (set(g.text.replace(',',' ').lower().split()) & self.GROUND_SYNS) or 
-						# 								(set(g['title'].replace(',',' ').replace('_',' ').lower().split()) & self.GROUND_SYNS)]
 					
 				elif th.has_attr('colspan') and (k == 'website'):
 					this_team_info[k] = row.next_sibling.next_sibling.find('a')['href']
@@ -436,56 +432,79 @@ class SportDBCreator(BaseSportDBCreator):
 
 		return {"team_colors": team_colors}
 
-	def _scrape_venues(self, team_soup):
+	def _scrape_venues(self, venue_soup):
 
 		venue_data = defaultdict()
-
-		th1 = team_soup.find('table', class_='infobox').find('th', text='Ground')
-
-		if not th1:
-			return venue_data
 		
-		venue_url = None
+		venue_infobox = venue_soup.find('table', class_='infobox')	
 
-		for s in th1.next_siblings:
-			if s.name == 'td':
-				venue_url = "https://en.wikipedia.org" + s.find('a')['href']
-				break
-		if not venue_url:
-			return venue_data
-	
-		venue_soup = BeautifulSoup(requests.get(venue_url).text, 'html.parser')
-	
-		venue_infobox = venue_soup.find('table', class_='infobox')			
-	
-		for row in venue_infobox.find_all('tr'):
-			th = row.find('th')
-			if th:
-				local_td = row.find('td')
-				if th and local_td:
-		
-					# print("th=", th.text)
-					# print("td=", row.find('td').text)
+		if not venue_infobox:
+			return venue_data	
 
-					k = th.text.lower().strip()
-
-					if k in self.processors['venue']:
-
-						if k != 'coordinates':
-							venue_data[k] = local_td.text.strip().lower()
-						else:
-							venue_data[k] = local_td.find('span', class_='geo-dec').text.strip()
+		for row in venue_infobox.find_all("tr"):
 			
-						venue_data[k] = self.processors['venue'][k](venue_data[k])
+			# try to find both 'th' and 'td' that should be in the same row
+			th = row.find('th')
+			td = row.find('td')
+
+			if th:  
+
+				heading = th.text.lower()
+
+				if ('establ' in heading) or ('opened' in heading) or ('founded' in heading):
+					k = 'established'
+				elif 'capacity' in heading:
+					k = 'capacity'
+				elif 'locat' in heading:
+					k = 'location'
+				elif 'coord' in heading:
+					k = 'coordinates'
+				elif 'own' in heading:
+					k = 'owner'
+				else:
+					continue	
+
+				if td:  # 2-column scenario
+	
+					if k in ['location']:
+						venue_data[k] = td.text.replace("\n",' ').lower().strip()
+					elif k == 'established':
+						venue_data[k] = self.RE_YEAR.search(td.text).group(0)
+					elif k == 'capacity':
+						venue_data[k] = re.search(r'\d+,*\d+', td.text).group(0).replace(',','')
+					elif k == 'coordinates':
+						_ = td.find('span', class_='geo-dec').parent.find('span', class_='geo').text.split(';')
+						venue_data[k] = {'lat': _[0].strip(), 'lng': _[1].strip()}
+					elif k == 'owner':
+						venue_data[k] = td.text.lower().strip()
+					else:
+						pass
+
+		return venue_data
 
 	def get_team_info(self):
 
+		
 		for team in self.team_urls[self.sport]:
 			print(f'collecting basic team info for {team.upper()}...', end='')
 			for rec in self.team_data:
 				if rec['name'] == team:
 					rec.update(self._scrape_team_infobox(BeautifulSoup(requests.get(self.team_urls[self.sport][team]).text, 'html.parser')))
 					break
+			print('ok')
+
+		return self
+
+	def get_team_venues(self):
+
+		for team in self.team_urls[self.sport]:
+			print(f'collecting venue info for {team.upper()}...', end='')
+			for rec in self.team_data:
+				if rec['name'] == team:
+					if 'ground' in rec and rec['ground']:
+						for r in rec['ground']:
+							self.venue_data.append({**r, **self._scrape_venues(BeautifulSoup(requests.get(r['wiki_url']).text, 'html.parser'))})
+
 			print('ok')
 
 		return self
@@ -554,10 +573,11 @@ class SportDBCreator(BaseSportDBCreator):
 if __name__ == '__main__':
 
 	sc = (SportDBCreator()
-			.get_team_info())
+			.get_team_info().get_team_venues())
 				# .get_team_sponsors()
 				# 	.get_int_profile()
 				# 		.get_team_colors()
 				# 			.get_team_social_media())
 
 	json.dump(sc.team_data, open('teaminfo-' + sc.sport.replace(' ','').upper() + '.json', 'w'))
+	json.dump(sc.venue_data, open('venueinfo-' + sc.sport.replace(' ','').upper() + '.json', 'w'))
