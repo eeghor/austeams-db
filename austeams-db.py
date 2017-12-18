@@ -91,7 +91,9 @@ class SportDBCreator(BaseSportDBCreator):
 		print('ok')
 
 		self.GROUND_SYNS = {'ground', 'complex', 'oval', 'hub', 'park', 'showgrounds', 'stadium', 
-								'field', 'reserve', 'estadio', 'club', 'sport', 'arena', 'sports'}
+								'field', 'reserve', 'estadio', 'club', 'sport', 'arena', 'sports', 'the', 'centre', 'center'}
+		self.LEAGUE_NMS = {'npl': 'national premier leagues', 'afl': 'australian football league',
+								'nbl': 'national basketball league'}
 
 		self.RE_YEAR = re.compile(r'\b\d{4}\b')
 		self.RE_COLOR = re.compile('(?<=\")[a-zA-Z ]+(?=\")')
@@ -110,6 +112,8 @@ class SportDBCreator(BaseSportDBCreator):
 		except:
 			raise Exception('can\'t find team infobox on this page!')
 
+		_ths = []
+
 		for row in ib.find_all("tr"):
 			
 			# try to find both 'th' and 'td' that should be in the same row
@@ -120,6 +124,11 @@ class SportDBCreator(BaseSportDBCreator):
 
 				heading = th.text.lower()
 
+				if not th.text.strip():
+					heading = _ths.pop()
+				else:
+					_ths.append(heading)
+
 				if 'union' in heading:
 					k = 'union'
 				elif 'nick' in heading:
@@ -128,15 +137,16 @@ class SportDBCreator(BaseSportDBCreator):
 					k = 'location'
 				elif ('ground' in heading) or ('arena' in heading):
 					k = 'ground'
-				elif ('league' in heading) or ('competition' in heading):
+				elif (('league' in heading) or ('competition' in heading)) and (len(heading.split()) < 3):
 					k = 'league'
 				elif 'website' in heading:
 					k = 'website'
 				elif 'history' in heading:
-					k = 'former names'
+					k = 'former_names'
 				elif 'colo' in heading:
 					k = 'colours'
 				else:
+
 					continue
 				
 				# this th will be our dictionary key
@@ -147,11 +157,19 @@ class SportDBCreator(BaseSportDBCreator):
 					if k in ['union', 'location']:
 						this_team_info[k] = td.text.replace("\n",' ').lower().strip()
 					elif k == 'league':
-						this_team_info[k] = [lg.lower().strip() for lg in td.text.split("\n")]
+						for l in list({lg.lower().strip().split('(')[0] for lg in td.text.split("\n")}):
+							for rpl in self.LEAGUE_NMS:
+								l = l.replace(rpl, self.LEAGUE_NMS[rpl])
+							if k in this_team_info:
+								this_team_info[k].append(l)
+							else:
+								this_team_info[k] = [l]
+
 					elif k == 'nickname':
-						this_team_info[k] = [lg.lower().split('[')[0].strip() for lg in td.text.split(",") if lg.lower().split('[')[0].strip()]
+						this_team_info[k] = [nick for nick in list({lg.lower().split('[')[0].split('(')[0].strip() 
+								for lg in re.split(r'[\n;,]\s*', td.text)}) if len(nick) > 1]
 					elif k == 'colours':
-						this_team_info[k] = [l.lower().strip() for l in re.split(r'[\n;,]\s*', td.text) if (':' not in l) and l.strip()]
+						this_team_info[k] = list(set([l.lower().strip() for l in re.split(r'[\n;,  ]\s*', td.text) if (':' not in l) and l.strip() not in {'and', '&', ''}]))
 					elif k == 'founded':
 						if self.RE_YEAR.search(td.text):  # avoid empty search results
 							this_team_info[k] = min(self.RE_YEAR.findall(td.text), key=lambda _: int(_))
@@ -159,16 +177,30 @@ class SportDBCreator(BaseSportDBCreator):
 							this_team_info[k] = None
 					elif k == 'website':
 						this_team_info[k] = row.find('a')["href"]  # grab url not text
-					elif k == 'former names':
-						this_team_info[k] = [_.text.strip().lower() for _ in td.find_all('b')]
-					elif k == 'ground':
-						_ = []
-						for g in td.find_all('a', attrs={'title': True}):
-							if ((set(g.text.replace(',',' ').lower().split()) & self.GROUND_SYNS) or 
-									(set(g['title'].replace(',',' ').replace('_',' ').lower().split()) & self.GROUND_SYNS)):
-								_.append({'name': g.text.lower().strip(), 'wiki_url': 'https://en.wikipedia.org' + g['href']})
+					elif k == 'former_names':
+						this_team_info[k] = [t[0] for t in zip([_.text.strip().lower() for _ in td.find_all('b')], 
+												[line.lower() for line in td.text.split('\n') if re.search(r'\d{4}', line)])
+													if 'present' not in t[1]]
 
-						this_team_info[k] = _
+					elif k == 'ground':
+
+						as_ = td.find_all('a', attrs={'title': True})
+
+						_ = []
+
+						if len(as_) == 1:
+							_.append({'name': as_[0].text.lower().strip(), 'wiki_url': 'https://en.wikipedia.org' + as_[0]['href']})
+						else:
+							for g in as_:
+								if ((set(g.text.replace(',',' ').lower().split()) & self.GROUND_SYNS) or 
+										(set(g['title'].replace(',',' ').replace('_',' ').lower().split()) & self.GROUND_SYNS)):
+									_.append({'name': g.text.lower().strip(), 'wiki_url': 'https://en.wikipedia.org' + g['href']})
+
+						if k in this_team_info:
+							venue_names_already_there = {v['name'] for v in this_team_info[k]}
+							[this_team_info[k].append(v) for v in _ if v["name"] not in venue_names_already_there]
+						else:
+							this_team_info[k] = _
 
 						# this_team_info[k] = [{'name': g.text.lower().strip(), 
 						# 						'wiki_url': 'https://en.wikipedia.org' + g['href']} 
@@ -448,15 +480,13 @@ class SportDBCreator(BaseSportDBCreator):
 
 	def get_team_info(self):
 
-		print('collecting basic team info...', end='')
-
 		for team in self.team_urls[self.sport]:
-
+			print(f'collecting basic team info for {team.upper()}...', end='')
 			for rec in self.team_data:
 				if rec['name'] == team:
 					rec.update(self._scrape_team_infobox(BeautifulSoup(requests.get(self.team_urls[self.sport][team]).text, 'html.parser')))
 					break
-		print('ok')
+			print('ok')
 
 		return self
 
