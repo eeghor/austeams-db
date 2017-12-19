@@ -12,8 +12,15 @@ import numpy as np
 import os
 import shutil
 from itertools import chain
+from tnormaliser import StringNormalizer
 
 from abc import ABCMeta, abstractmethod
+
+tn = StringNormalizer(remove_stopwords=True, remove_punctuation=True, 
+						lowercase=True, short_state_names=True, 
+							full_city_names=True, remove_nonalnum=True, disamb_country_names=True,
+								ints_to_words=False, year_to_label=False, remove_dupl_subsrings=True, max_dupl=4,
+									remove_dupl_words=False)
 
 class BaseSportDBCreator(metaclass=ABCMeta):
 
@@ -143,7 +150,7 @@ class SportDBCreator(BaseSportDBCreator):
 				elif 'website' in heading:
 					k = 'website'
 				elif 'history' in heading:
-					k = 'former_names'
+					k = 'known_as'
 				elif 'colo' in heading:
 					k = 'colours'
 				else:
@@ -179,7 +186,7 @@ class SportDBCreator(BaseSportDBCreator):
 							this_team_info[k] = None
 					elif k == 'website':
 						this_team_info[k] = row.find('a')["href"]  # grab url not text
-					elif k == 'former_names':
+					elif k == 'known_as':
 						this_team_info[k] = [t[0] for t in zip([_.text.strip().lower() for _ in td.find_all('b')], 
 												[line.lower() for line in td.text.split('\n') if re.search(r'\d{4}', line)])
 													if 'present' not in t[1]]
@@ -191,12 +198,12 @@ class SportDBCreator(BaseSportDBCreator):
 						_ = []
 
 						if len(as_) == 1:
-							_.append({'name': as_[0].text.lower().strip(), 'wiki_url': 'https://en.wikipedia.org' + as_[0]['href']})
+							_.append({'name': tn.normalise(as_[0].text.lower().strip()), 'wiki_url': 'https://en.wikipedia.org' + as_[0]['href']})
 						else:
 							for g in as_:
 								if ((set(g.text.replace(',',' ').lower().split()) & self.GROUND_SYNS) or 
 										(set(g['title'].replace(',',' ').replace('_',' ').lower().split()) & self.GROUND_SYNS)):
-									_.append({'name': g.text.lower().strip(), 'wiki_url': 'https://en.wikipedia.org' + g['href']})
+									_.append({'name': tn.normalise(g.text.lower().strip()), 'wiki_url': 'https://en.wikipedia.org' + g['href']})
 
 						if k in this_team_info:
 							venue_names_already_there = {v['name'] for v in this_team_info[k]}
@@ -461,6 +468,8 @@ class SportDBCreator(BaseSportDBCreator):
 					k = 'coordinates'
 				elif 'own' in heading:
 					k = 'owner'
+				elif ('former' in heading) and ('name' in heading):
+					k = 'known_as'
 				else:
 					continue	
 
@@ -476,7 +485,18 @@ class SportDBCreator(BaseSportDBCreator):
 						_ = td.find('span', class_='geo-dec').parent.find('span', class_='geo').text.split(';')
 						venue_data[k] = {'lat': _[0].strip(), 'lng': _[1].strip()}
 					elif k == 'owner':
-						venue_data[k] = td.text.lower().strip()
+						venue_data[k] = [v.lower().split('(')[0].strip() for v in re.split(r'[\n;,]\s*', td.text) if v.strip()]
+					elif k == 'known_as':
+						venue_data[k] = [v.lower().split('(')[0].strip() for v in re.split(r'[\n;,]\s*', td.text) if v.strip()]
+						# also try to find more former or alternative names in the first paragraph of main text where these would be in bold
+						for s in venue_infobox.next_siblings:
+							if s.name == 'p':
+								for b in s.find_all('b'):
+									text_in_bold = b.text.lower().strip()
+									if ((len(text_in_bold) > 1) and 
+												(text_in_bold not in venue_data[k])):
+										venue_data[k].append(text_in_bold)
+								break  # consider only the very first paragraph
 					else:
 						pass
 
