@@ -22,6 +22,88 @@ tn = StringNormalizer(remove_stopwords=True, remove_punctuation=True,
 								ints_to_words=False, year_to_label=False, remove_dupl_subsrings=True, max_dupl=4,
 									remove_dupl_words=False)
 
+class TEGCodeFinder:
+	
+	def __init__(self):
+		
+		self.AUS_SUBURBS = json.load(open('/Users/ik/Data/suburbs-and-postcodes/aus_suburbs_auspost_APR2017.json', 'r'))
+		self.TEG_VENUES = json.load(open('../temp_venue_match/teg_venues_anz.json'))
+		self.STATES_AND_REGIONS = {s['state'] for l in self.AUS_SUBURBS for s in self.AUS_SUBURBS[l]} | {v['state'] for v in self.TEG_VENUES}
+		
+	def _find_state_by_suburb(self, st_norm):
+		'''
+		find suburb and then the corresp. state in NORMALISED string st
+		'''   
+		suburb_candidates = set()
+		
+		for w in st_norm.split():
+			if w[0] in self.AUS_SUBURBS:
+				for s in self.AUS_SUBURBS[w[0]]:         
+					_ = re.search(r'\b' + s['name'] + r'\b', st_norm)
+					if _:
+						suburb_candidates.add((s['name'], s['state']))
+				if len(suburb_candidates) == 1:
+					return list(suburb_candidates).pop()[1]
+				elif len(suburb_candidates) > 1:
+					# pick the state corresp. to the longest suburb name
+					return max(suburb_candidates, key=lambda _: len(_[0].split()))[1]
+				else:    # no suburbs found in location
+					return None
+		
+	def _get_venue_state(self, venue_record):
+		
+		if 'location' in venue_record:
+			
+			loc_norm = tn.normalise(venue_record['location'])
+	 
+			state = list(set(loc_norm.split()) & self.STATES_AND_REGIONS)
+			if state:  
+				return state.pop()
+		
+		# no state in location; search the url
+		if 'wiki_url' in venue_record:
+			url_state = list(set(tn.normalise(venue_record['wiki_url']).split()) & self.STATES_AND_REGIONS)
+			if url_state:
+				return url_state.pop()
+		
+		if 'location' in venue_record:
+			state_loc_sub = self._find_state_by_suburb(loc_norm)
+			if state_loc_sub:
+				return state_loc_sub
+		
+		if 'known_as' in venue_record:
+			for name in venue_record['known_as']:
+				state_known_as = self._find_state_by_suburb(tn.normalise(name))
+				if state_known_as:
+					return state_known_as         
+		
+	def find_teg_code(self, venue_record):
+		
+		'''
+		returns venue state and venue TEG code(s) for a venue_record
+		'''
+		found_tegcodes = []  # teg codes for this venue
+
+		venue_state = self._get_venue_state(venue_record)
+		
+		if venue_state:
+	
+			for teg_venue in self.TEG_VENUES:
+			
+				if teg_venue['name'].strip():
+					if re.search(r'\b' + tn.normalise(venue_record['name'])  + r'\b', tn.normalise(teg_venue['name'])) and (venue_state.lower() == teg_venue['state'].lower()):
+						found_tegcodes.append(teg_venue['teg_code'])
+			
+			if ('known_as' in venue_record):
+				for teg_venue in self.TEG_VENUES:
+					for former_name in venue_record['known_as']:
+						if teg_venue['name'].strip():
+							if re.search(r'\b' + tn.normalise(former_name) + r'\b', tn.normalise(teg_venue['name'])) and (venue_state.lower() == teg_venue['state'].lower()):
+								found_tegcodes.append(teg_venue['teg_code'])
+
+		return {'state': venue_state, 'teg_code': list(set(found_tegcodes))}
+
+
 class BaseSportDBCreator(metaclass=ABCMeta):
 
 	@abstractmethod
@@ -143,7 +225,7 @@ class SportDBCreator(BaseSportDBCreator):
 					k = 'nickname'
 				elif 'locat' in heading:
 					k = 'location'
-				elif ('ground' in heading) or ('arena' in heading):
+				elif (('ground' in heading) or ('arena' in heading)) and ('capacity' not in heading):
 					k = 'ground'
 				elif (('league' in heading) or ('competition' in heading)) and (len(heading.split()) < 3):
 					k = 'league'
@@ -476,7 +558,7 @@ class SportDBCreator(BaseSportDBCreator):
 				if td:  # 2-column scenario
 	
 					if k in ['location']:
-						venue_data[k] = td.text.replace("\n",' ').lower().strip()
+						venue_data[k] = td.text.replace("\n",' ').lower().strip().split('(')[0]
 					elif k == 'established':
 						venue_data[k] = self.RE_YEAR.search(td.text).group(0)
 					elif k == 'capacity':
@@ -489,16 +571,22 @@ class SportDBCreator(BaseSportDBCreator):
 					elif k == 'known_as':
 						venue_data[k] = [v.lower().split('(')[0].strip() for v in re.split(r'[\n;,]\s*', td.text) if v.strip()]
 						# also try to find more former or alternative names in the first paragraph of main text where these would be in bold
-						for s in venue_infobox.next_siblings:
-							if s.name == 'p':
-								for b in s.find_all('b'):
-									text_in_bold = b.text.lower().strip()
-									if ((len(text_in_bold) > 1) and 
-												(text_in_bold not in venue_data[k])):
-										venue_data[k].append(text_in_bold)
-								break  # consider only the very first paragraph
 					else:
 						pass
+
+		for s in venue_infobox.next_siblings:
+			if s.name == 'p':
+				for b in s.find_all('b'):
+					text_in_bold = b.text.lower().strip()
+					if 'known_as' not in venue_data:
+						if len(text_in_bold) > 1:
+							venue_data['known_as'] = [text_in_bold]
+					else:
+						if ((len(text_in_bold) > 1) and 
+								(text_in_bold not in venue_data['known_as'])):
+							venue_data['known_as'].append(text_in_bold)
+				break  # consider only the very first paragraph
+
 
 		return venue_data
 
@@ -523,7 +611,11 @@ class SportDBCreator(BaseSportDBCreator):
 				if rec['name'] == team:
 					if 'ground' in rec and rec['ground']:
 						for r in rec['ground']:
-							self.venue_data.append({**r, **self._scrape_venues(BeautifulSoup(requests.get(r['wiki_url']).text, 'html.parser'))})
+							venue_record = {**r, **self._scrape_venues(BeautifulSoup(requests.get(r['wiki_url']).text, 'html.parser'))}
+							# update with TEG codes and states
+							venue_record.update(tcf.find_teg_code(venue_record))
+							self.venue_data.append(venue_record)
+						
 
 			print('ok')
 
@@ -591,6 +683,8 @@ class SportDBCreator(BaseSportDBCreator):
 		return self
 
 if __name__ == '__main__':
+
+	tcf = TEGCodeFinder()
 
 	sc = (SportDBCreator()
 			.get_team_info().get_team_venues())
